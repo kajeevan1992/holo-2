@@ -1,0 +1,369 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  STAFF
+  CUSTOMER
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum PricingMode {
+  FIXED
+  MATRIX
+  AREA
+  QUOTE
+}
+
+enum OrderStatus {
+  DRAFT
+  AWAITING_PAYMENT
+  PAYMENT_RECEIVED
+  ARTWORK_CHECK
+  AWAITING_APPROVAL
+  APPROVED
+  IN_PRODUCTION
+  QUALITY_CHECK
+  READY_FOR_COLLECTION
+  DISPATCHED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  CARD
+  BANK_TRANSFER
+  CASH
+  PAYMENT_LINK
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  PAID
+  FAILED
+  CANCELLED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum ArtworkStatus {
+  NOT_REQUIRED
+  AWAITING_UPLOAD
+  UPLOADED
+  CHECKING
+  PROOF_SENT
+  APPROVED
+  CHANGES_REQUESTED
+}
+
+enum DeliveryMethod {
+  COLLECTION
+  LOCAL_DELIVERY
+  COURIER
+}
+
+model StoreSetting {
+  id                    String   @id @default("store")
+  businessName          String   @default("HOLO Print")
+  tradingName           String   @default("HOLO Print")
+  email                 String?
+  phone                 String?
+  currency              String   @default("GBP")
+  defaultVatRate        Decimal  @default(20) @db.Decimal(5, 2)
+  bankTransferEnabled   Boolean  @default(true)
+  bankAccountName       String?
+  bankSortCodeEncrypted String?
+  bankAccountEncrypted  String?
+  collectionEnabled     Boolean  @default(true)
+  deliveryEnabled       Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  name           String?
+  phone          String?
+  passwordHash   String?
+  role           UserRole  @default(CUSTOMER)
+  isActive       Boolean   @default(true)
+  sessionVersion Int       @default(1)
+  lastLoginAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  addresses      Address[]
+  carts          Cart[]
+  orders         Order[]
+
+  @@index([role])
+  @@index([isActive])
+}
+
+model Address {
+  id         String   @id @default(cuid())
+  userId     String?
+  label      String?
+  fullName   String
+  company    String?
+  line1      String
+  line2      String?
+  city       String
+  county     String?
+  postcode   String
+  country    String   @default("GB")
+  phone      String?
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders     Order[]
+
+  @@index([userId])
+  @@index([postcode])
+}
+
+model Category {
+  id          String     @id @default(cuid())
+  name        String
+  slug        String     @unique
+  description String     @default("")
+  imageUrl    String?
+  sortOrder   Int        @default(0)
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  products    Product[]
+
+  @@index([isActive, sortOrder])
+}
+
+model Product {
+  id                   String               @id @default(cuid())
+  categoryId           String?
+  name                 String
+  slug                 String               @unique
+  sku                  String?              @unique
+  shortDescription     String               @default("")
+  description          String               @default("")
+  imageUrl             String?
+  gallery              Json?
+  status               ProductStatus        @default(DRAFT)
+  pricingMode          PricingMode           @default(MATRIX)
+  basePriceExVat       Decimal              @default(0) @db.Decimal(12, 4)
+  vatRate              Decimal              @default(20) @db.Decimal(5, 2)
+  configuration        Json?
+  pricingConfiguration Json?
+  productionRules      Json?
+  artworkRequired      Boolean              @default(true)
+  allowCustomSize      Boolean              @default(false)
+  minWidthMm           Decimal?             @db.Decimal(10, 2)
+  maxWidthMm           Decimal?             @db.Decimal(10, 2)
+  minHeightMm          Decimal?             @db.Decimal(10, 2)
+  maxHeightMm          Decimal?             @db.Decimal(10, 2)
+  sortOrder            Int                  @default(0)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  category             Category?            @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  optionGroups         ProductOptionGroup[]
+  cartItems            CartItem[]
+  orderItems           OrderItem[]
+
+  @@index([categoryId])
+  @@index([status, sortOrder])
+}
+
+model ProductOptionGroup {
+  id          String          @id @default(cuid())
+  productId   String
+  name        String
+  code        String
+  description String          @default("")
+  inputType   String          @default("select")
+  isRequired  Boolean         @default(true)
+  sortOrder   Int             @default(0)
+  visibility  Json?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  product     Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  options     ProductOption[]
+
+  @@unique([productId, code])
+  @@index([productId, sortOrder])
+}
+
+model ProductOption {
+  id             String             @id @default(cuid())
+  optionGroupId  String
+  name           String
+  code           String
+  description    String             @default("")
+  value          Json?
+  priceAdjustment Decimal           @default(0) @db.Decimal(12, 4)
+  pricingRule    Json?
+  isDefault      Boolean            @default(false)
+  isActive       Boolean            @default(true)
+  sortOrder      Int                @default(0)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  optionGroup    ProductOptionGroup @relation(fields: [optionGroupId], references: [id], onDelete: Cascade)
+
+  @@unique([optionGroupId, code])
+  @@index([optionGroupId, isActive, sortOrder])
+}
+
+model Cart {
+  id         String     @id @default(cuid())
+  userId     String?
+  sessionKey String?    @unique
+  expiresAt  DateTime?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  user       User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items      CartItem[]
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model CartItem {
+  id                  String   @id @default(cuid())
+  cartId              String
+  productId           String
+  quantity            Int
+  widthMm             Decimal? @db.Decimal(10, 2)
+  heightMm            Decimal? @db.Decimal(10, 2)
+  selections          Json
+  pricingSnapshot     Json
+  unitPriceExVat      Decimal  @db.Decimal(12, 4)
+  vatAmount           Decimal  @db.Decimal(12, 4)
+  lineTotalIncVat     Decimal  @db.Decimal(12, 4)
+  artworkRequired     Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  cart                Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product             Product  @relation(fields: [productId], references: [id])
+
+  @@index([cartId])
+  @@index([productId])
+}
+
+model Order {
+  id                  String         @id @default(cuid())
+  orderNumber         String         @unique
+  userId              String?
+  deliveryAddressId   String?
+  customerEmail       String
+  customerName        String
+  customerPhone       String?
+  status              OrderStatus    @default(AWAITING_PAYMENT)
+  paymentMethod       PaymentMethod
+  paymentStatus       PaymentStatus  @default(PENDING)
+  deliveryMethod      DeliveryMethod
+  currency            String         @default("GBP")
+  subtotalExVat       Decimal        @db.Decimal(12, 4)
+  vatTotal            Decimal        @db.Decimal(12, 4)
+  deliveryExVat       Decimal        @default(0) @db.Decimal(12, 4)
+  grandTotalIncVat    Decimal        @db.Decimal(12, 4)
+  bankTransferReference String?
+  customerNotes       String?
+  internalNotes       String?
+  paidAt              DateTime?
+  dispatchedAt        DateTime?
+  deliveredAt         DateTime?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  user                User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  deliveryAddress     Address?       @relation(fields: [deliveryAddressId], references: [id], onDelete: SetNull)
+  items               OrderItem[]
+  payments            Payment[]
+  artworks             Artwork[]
+
+  @@index([userId])
+  @@index([status, createdAt])
+  @@index([paymentStatus])
+  @@index([customerEmail])
+}
+
+model OrderItem {
+  id                  String        @id @default(cuid())
+  orderId             String
+  productId           String?
+  productName         String
+  productSku          String?
+  quantity            Int
+  widthMm             Decimal?      @db.Decimal(10, 2)
+  heightMm            Decimal?      @db.Decimal(10, 2)
+  selections          Json
+  pricingSnapshot     Json
+  unitPriceExVat      Decimal       @db.Decimal(12, 4)
+  vatAmount           Decimal       @db.Decimal(12, 4)
+  lineTotalIncVat     Decimal       @db.Decimal(12, 4)
+  artworkStatus       ArtworkStatus @default(AWAITING_UPLOAD)
+  productionStatus    String        @default("PENDING")
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  order               Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product             Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
+  artworks            Artwork[]
+
+  @@index([orderId])
+  @@index([productId])
+  @@index([artworkStatus])
+}
+
+model Artwork {
+  id          String        @id @default(cuid())
+  orderId     String
+  orderItemId String?
+  fileName    String
+  storageKey  String
+  mimeType    String
+  fileSize    Int
+  status      ArtworkStatus @default(UPLOADED)
+  customerNote String?
+  adminNote   String?
+  uploadedAt  DateTime      @default(now())
+  checkedAt   DateTime?
+  approvedAt  DateTime?
+  order       Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItem   OrderItem?    @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([orderItemId])
+  @@index([status])
+}
+
+model Payment {
+  id                String        @id @default(cuid())
+  orderId           String
+  method            PaymentMethod
+  status            PaymentStatus @default(PENDING)
+  provider           String?
+  providerReference  String?
+  amount             Decimal       @db.Decimal(12, 4)
+  currency           String        @default("GBP")
+  metadata           Json?
+  receivedAt         DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  order              Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([providerReference])
+  @@index([status])
+}
